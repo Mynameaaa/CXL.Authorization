@@ -1,0 +1,50 @@
+﻿.NET Core使用Cookie做身份验证：
+	市面上见的比较多的认证协议是JWT这种颁布令牌（Access Token）的方式，同样也诞生出了OAuth2这种第三方授权框架，但是我们不要忽视了最原始的cookie认证方式，
+	本次博客就来回顾一下这个存在了20年（不知道是不是20年，想想看，我们世界上最好的语言C#才诞生20年）依旧经久不衰的原始存在。
+
+	本文使用的是.NET Core 6.0。
+
+	1、添加 cookie 身份验证：
+		创建一个CookieAuthentication的.NET Core Web API 的项目，引用
+			Microsoft.AspNetCore.Authentication.Cookies
+			
+		将身份验证中间件服务 AddAuthentication 添加到和 AddCookie 方法。
+
+	2、验证 cookie 授权：
+		有时候，为了更加安全，不登录用户，未获取cookie的用户，将无法正常使用api，此时，此时，只需要再对应的API增加特性即可
+
+		[Authorize(AuthenticationSchemes = CookieAuthenticationDefaults.AuthenticationScheme)]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	

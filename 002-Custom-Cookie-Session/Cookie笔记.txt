@@ -1,0 +1,301 @@
+﻿基于Cookie的身份认证(Authentication)：
+	概述：
+		通常，身份认证（Authentication）和授权（Authorization）都会放在一起来讲。但是，由于这俩英文相似，且“认证授权”四个字经常连着用，
+		导致一些刚接触这块知识的读者产生混淆，分不清认证和授权的区别，甚至认为这俩是同一个。所以，我想先给大家简单区分一下身份认证和授权。
+
+		身份认证：
+			确认执行操作的人是谁。
+
+			当用户请求后台服务时，系统首先需要知道用户是谁，是张三、李四还是匿名？确认身份的这个过程就是“身份认证”。
+			在我们的实际生活中，通过出示自己的身份证，别人就可以快速地确认你的身份。
+
+		授权：
+			确认操作人是否有执行该项操作的权限。
+			
+			确认身份后，已经获悉了用户信息，随后来到授权阶段。在本阶段，要做的是确认用户有没有执行该项操作的权限，如确认张三有没有商品查看权限、有没有编辑权限等。
+
+		Cookie：
+			基于Cookie进行身份认证，通常的方案是用户成功登录后，服务端将用户的必要信息记录在Cookie中，并发送给浏览器，后续当用户发送请求时，
+			浏览器将Cookie传回服务端，服务端就可以通过Cookie中的信息确认用户信息了。
+
+	身份认证(Authentication)：
+
+		身份认证(Authentication)：
+			在 ASP.NET Core 中，为了进行身份认证，需要在HTTP请求管道中通过UseAuthentication添加身份认证中间件——AuthenticationMiddleware：
+
+				// 身份认证中间件
+				app.UseAuthentication();
+
+				UseAuthentication一定要放在UseEndpoints之前，否则Controller中无法通过HttpContext获取身份信息。
+
+			AuthenticationMiddleware做的事情很简单，就是确认用户身份，在代码层面上就是给HttpContext.User赋值，请参考下方代码：
+
+				public class AuthenticationMiddleware
+                {
+                    private readonly RequestDelegate _next;
+                
+                    public AuthenticationMiddleware(RequestDelegate next, IAuthenticationSchemeProvider schemes)
+                    {
+                        _next = next;
+                        Schemes = schemes;
+                    }
+                
+                    public IAuthenticationSchemeProvider Schemes { get; set; }
+                
+                    public async Task Invoke(HttpContext context)
+                    {
+                        // 记录原始路径和原始基路径
+                        context.Features.Set<IAuthenticationFeature>(new AuthenticationFeature
+                        {
+                            OriginalPath = context.Request.Path,
+                            OriginalPathBase = context.Request.PathBase
+                        });
+                
+                        // 如果有显式指定的身份认证方案，优先处理（这里不用看，直接看下面）
+                        var handlers = context.RequestServices.GetRequiredService<IAuthenticationHandlerProvider>();
+                        foreach (var scheme in await Schemes.GetRequestHandlerSchemesAsync())
+                        {
+                            var handler = await handlers.GetHandlerAsync(context, scheme.Name) as IAuthenticationRequestHandler;
+                            if (handler != null && await handler.HandleRequestAsync())
+                            {
+                                return;
+                            }
+                        }
+                
+                        // 使用默认的身份认证方案进行认证，并赋值 HttpContext.User
+                        var defaultAuthenticate = await Schemes.GetDefaultAuthenticateSchemeAsync();
+                        if (defaultAuthenticate != null)
+                        {
+                            var result = await context.AuthenticateAsync(defaultAuthenticate.Name);
+                            if (result?.Principal != null)
+                            {
+                                context.User = result.Principal;
+                            }
+                        }
+                
+                        await _next(context);
+                    }
+                }
+
+        配置Cookie认证方案
+            现在，认证中间件已经加好了，现在需要在ConfigureServices方法中添加身份认证所需要用到的服务并进行认证方案配置。
+
+            我们可以通过AddAuthentication扩展方法来添加身份认证所需要的服务，并可选的指定默认认证方案的名称，以下方为例：
+
+                services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme);
+
+            我们添加了身份认证所依赖的服务，并指定了一个名为CookieAuthenticationDefaults.AuthenticationScheme的默认认证方案，即Cookies。
+            很明显，它是一个基于Cookie的身份认证方案。
+
+            CookieAuthenticationDefaults是一个静态类，定义了一些常用的默认值：
+                
+                public static class CookieAuthenticationDefaults
+                {
+                    // 认证方案名
+                    public const string AuthenticationScheme = "Cookies";
+                
+                    // Cookie名字的前缀
+                    public static readonly string CookiePrefix = ".AspNetCore.";
+                    
+                    // 登录路径
+                    public static readonly PathString LoginPath = new PathString("/Account/Login");
+                
+                    // 注销路径
+                    public static readonly PathString LogoutPath = new PathString("/Account/Logout");
+                
+                    // 访问拒绝路径
+                    public static readonly PathString AccessDeniedPath = new PathString("/Account/AccessDenied");
+                
+                    // return url 的参数名
+                    public static readonly string ReturnUrlParameter = "ReturnUrl";
+                }
+
+            现在，我们已经指定了默认认证方案，接下来就是来配置这个方案的细节，通过后跟AddCookie来实现：
+                
+                public class Startup
+                {
+                    public void ConfigureServices(IServiceCollection services)
+                    {
+                        services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme);
+                            .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme, options =>
+                            {
+                                // 在这里对该方案进行详细配置
+                            });
+                    }
+                }
+
+            很明显，AddCookie的第一个参数就是指定该认证方案的名称，第二个参数是详细配置。
+
+            通过options，可以针对登录、注销、Cookie等方面进行详细配置。它的类型为CookieAuthenticationOptions，继承自AuthenticationSchemeOptions。
+            属性实在比较多，我就选择一些比较常用的来讲解一下。
+
+            另外，由于在针对选项进行配置时，需要依赖DI容器中的服务，所以不得不将选项的配置从AddCookie扩展方法中提出来。
+
+            请查看以下代码：
+                
+                public class Startup
+                {
+                    public void ConfigureServices(IServiceCollection services)
+                    {
+                        services.AddOptions<CookieAuthenticationOptions>(CookieAuthenticationDefaults.AuthenticationScheme)
+                            .Configure<IDataProtectionProvider>((options, dp) =>
+                            {
+                                options.LoginPath = new PathString("/Account/Login");
+                                options.LogoutPath = new PathString("/Account/Logout");
+                                options.AccessDeniedPath = new PathString("/Account/AccessDenied");
+                                options.ReturnUrlParameter = "returnUrl";
+                
+                                options.ExpireTimeSpan = TimeSpan.FromDays(14);
+                                //options.Cookie.Expiration = TimeSpan.FromMinutes(30);
+                                //options.Cookie.MaxAge = TimeSpan.FromDays(14);
+                                options.SlidingExpiration = true;
+                                
+                                options.Cookie.Name = "auth";
+                                //options.Cookie.Domain = ".xxx.cn";
+                                options.Cookie.Path = "/";
+                                options.Cookie.SameSite = SameSiteMode.Lax;
+                                options.Cookie.HttpOnly = true;
+                                options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+                                options.Cookie.IsEssential = true;
+                                options.CookieManager = new ChunkingCookieManager();
+                                
+                                options.DataProtectionProvider ??= dp;
+                                var dataProtector = options.DataProtectionProvider.CreateProtector("Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationMiddleware", CookieAuthenticationDefaults.AuthenticationScheme, "v2");
+                                options.TicketDataFormat = new TicketDataFormat(dataProtector);
+                
+                                options.Events.OnSigningIn = context =>
+                                {
+                                    Console.WriteLine($"{context.Principal.Identity.Name} 正在登录...");
+                                    return Task.CompletedTask;
+                                };
+                
+                                options.Events.OnSignedIn = context =>
+                                {
+                                    Console.WriteLine($"{context.Principal.Identity.Name} 已登录");
+                                    return Task.CompletedTask;
+                                };
+                                
+                                options.Events.OnSigningOut = context =>
+                                {
+                                    Console.WriteLine($"{context.HttpContext.User.Identity.Name} 注销");
+                                    return Task.CompletedTask;
+                                };
+                
+                                options.Events.OnValidatePrincipal += context =>
+                                {
+                                    Console.WriteLine($"{context.Principal.Identity.Name} 验证 Principal");
+                                    return Task.CompletedTask;
+                                };
+                            });
+                        services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+                            .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme);
+                    }
+                }
+
+            以上配置，大多使用了程序的默认值，接下来一一进行详细讲解：
+                
+                LoginPath：登录页路径，指向一个Action
+                    默认/Account/Login。
+                    当服务端不允许匿名访问而需要确认用户信息时，跳转到该页面进行登录。
+
+                    另外，登录方法通常会有一个参数，叫作return url，用来当用户登录成功时，自动跳转回之前访问的页面。这个参数也会自动传递给该Action，下方会详细说明。
+
+                LogoutPath：
+                    注销路径，指向一个Action。默认/Account/Logout。
+
+                AccessDeniedPath：
+                    访问拒绝页路径，指向一个Action。默认/Account/AccessDenied。当出现Http状态码 403 时，会跳转到该页面。
+
+                ReturnUrlParameter：
+                    上面提到的return url的参数名，参数值会通过 query 的方式传递到该参数中。默认ReturnUrl。
+
+                ExpireTimeSpan：
+                    认证票据（authentication ticket）的有效期。
+
+                    默认 14 天
+
+                    认证票据在代码中表现为类型为AuthenticationTicket的对象，它就好像一个手提包，里面放满了可以证明你身份的物品，如身份证、驾驶证等。
+
+                    认证票据存储在Cookie中，它的有效期与所在Cookie的有效期是独立的，如果Cookie没有过期，但是认证票据过期了，也无法通过认证。
+                    在下方讲解登录部分时，有针对认证票据有效期的详细说明。
+
+                Cookie.Expiration：
+                    Cookie的过期时间，即在浏览器中的保存时间，用于持久化Cookie。
+
+                    对应Cookie中的Expires属性，是一个明确地时间点。
+                    目前已被禁用，我们无法给它赋值。
+
+                Cookie.MaxAge：
+                    Cookie的过期时间，即在浏览器中的保存时间，用于持久化Cookie。
+
+                    对应Cookie中的Max-Age属性，是一个时间范围。
+                    如果Cookie的Max-Age和Expires同时设置，则以Max-Age为准
+                    如果没有设置Cookie的Expires，同时Cookie.MaxAge的值保持为null，那么该Cookie的有效期就是当前会话（Session），当浏览器关闭后，
+                    Cookie便会被清除（实际上，现在的部分浏览器有会话恢复功能，浏览器关闭后重新打开，Cookie也会跟着恢复，仿佛浏览器从未关闭一样）。
+
+                SlidingExpiration：
+                    指示Cookie的过期方式是否为滑动过期。默认true。若为滑动过期，服务端收到请求后，如果发现Cookie的生存期已经超过了一半，
+                    那么服务端会重新颁发一个全新的Cookie，Cookie的过期时间和认证票据的过期时间都会被重置。
+
+                Cookie.Name：
+                    该Cookie的名字，默认是.AspNetCore.Cookies。
+
+                Cookie.Domain：
+                    该Cookie所属的域，对应Cookie的Domain属性。一般以“.”开头，允许subdomain都可以访问。默认为请求Url的域。
+
+                Cookie.Path：
+                    该Cookie所属的路径，对应Cookie的Path属性。默认/。
+
+                Cookie.SameSite：
+                    设置通过浏览器跨站发送请求时决定是否携带Cookie的模式，共有三种，分别是None、Lax和Strict。
+
+                    public enum SameSiteMode
+                    {
+                        Unspecified = -1,
+                        None,
+                        Lax,
+                        Strict
+                    }
+
+                    SameSiteMode.Unspecified：
+                        使用浏览器的默认模式。
+                    SameSiteMode.None：
+                        不作限制，通过浏览器发送同站或跨站请求时，都会携带Cookie。这是非常不建议的模式，容易受到CSRF攻击
+                    SameSiteMode.Lax：
+                        默认值。通过浏览器发送同站请求或跨站的部分GET请求时，可以携带Cookie。
+                    SameSiteMode.Strict：
+                        只有通过浏览器发送同站请求时，才会携带Cookie。
+
+                Cookie.HttpOnly：
+                    指示该Cookie能否被客户端脚本（如js）访问。默认为true，即禁止客户端脚本访问，这可以有效防止XSS攻击。
+
+                Cookie.SecurePolicy：
+                    设置Cookie的安全策略，对应于Cookie的Secure属性。
+
+                    public enum CookieSecurePolicy
+                    {
+                        SameAsRequest,
+                        Always,
+                        None
+                    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

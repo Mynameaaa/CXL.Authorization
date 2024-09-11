@@ -1,0 +1,261 @@
+﻿.Net6 鉴权授权：
+	什么是鉴权、授权？
+		验证 和 授权 二者常被混淆。验证 关心的是用户登录与否，而 授权 关心“用户在登录 后 能否做某些事”。
+		你可以认为 验证 是在问：“我知道这个用户是谁吗？”，而 授权 问的是：“这个用户有权限做某件事吗？”
+	
+		鉴权与授权是有区别的，举个例子。一天周末，小明去游乐场玩。首先，向工作人员出示入场门票，工作人员验证门票的有效期，
+		门票是否伪造…验证通过后小明进入游乐园，这时小明入园后想去玩过山车，可过山车是VIP门票才能玩的，设备管理员查看了小明的门票，
+		发现小明的门票是普通游客，所以没法玩过山车。
+
+		鉴权：工作人员验证门票的过程 = 鉴权。
+
+		授权：小明不是VIP，没有玩过山车的权限，这就是授权。
+
+			利用上面一个例子对应到我们一个请求的过程：
+			小明 = 一个请求
+			门票 = token
+			检票员 = 鉴权中间件
+			设备管理员 = 授权中间件
+			过山车 = 受保护的资源
+
+		那么将上面的例子转换为一次http请求过程的话就是，请求到达鉴权中间件，鉴权中间件验证后是否验证通过，不通过，则直接返回未授权，
+		通过后到达授权中间件，授权中间件查看是否有权限访问该资源，有则通过，否则返回权限不足。
+
+			鉴权：
+				身份验证 知道用户的身份。 例如，Alice 使用用户名和密码登录，并且服务器使用密码对 Alice 进行身份验证。
+			授权：
+				是指是否允许用户执行某个操作。 例如，Alice 有权获取资源，但不能创建资源。
+
+	名词理解：
+		Claims（证件单元）：
+			
+			其中，姓名：奥巴马；性别：男；民族：肯尼亚；出生：1961.08.04，等等这些身份信息，可以看出都是一个一个的键值对，那如果我们想在程序中存这些东西，
+			怎么样来设计呢？对，你可能想到了使用一个字典进行存储，一个Key，一个Value刚好满足需求。
+			但是Key，Value的话感觉不太友好，不太面向对象，所以如果我们做成一个对象的话，是不是更好一些呢？
+			最起码你可以用vs的智能提示了吧，我们修改一下，改成下面这样：
+				//我给对象取一个名字叫`Claim`你没有意见吧
+				public class Claim
+				{
+				    public string ClaimType { get; set; }
+				
+				    public string ClaimValue { get; set; }
+				}
+
+			ClaimType 就是Key，ClaimValue就代表一个Value。这样的话，刚好可以存储一个键值对。这时候姓名：奥巴马是不是可以存进去了。
+
+			微软的人很贴心，给我们准备了一些默认的ClaimType呢？很多常用的都在里面呢，一起看看吧：
+				位于：System.Security.Claims.ClaimTypes 类型下
+
+				可以看到有什么Name，Email，Gender，MobilePhone等常用的都已经有了，其他的还有很多。
+
+			Claim 介绍完毕，是不是很简单，它叫 “证件单元”。
+
+		ClaimsIdentity（身份证）：
+			在有了“证件单元”之后，我们就用它可以制造一张身份证了，那么应该怎么样制造呢？有些同学可能已经想到了，对，就是新建一个对象，
+			然后在构造函数里面把身份证单元传输进去，然后就得到一张身份证了。我们给这张身份证取一个英文名字叫 “ClaimsIdentity”，
+			这个名字看起来还蛮符合的，既有 Claims 表示其组成部分，又有表示其用途的 Identity（身份），很满意的一个名字。
+
+			实际上，在现实生活中，我们的身份证有一部分信息是隐藏的，有一部分是可以直接看到的。比如新一代的身份证里面存储了你的指纹信息你是看不到的，
+			这些都存储在身份证里面的芯片中，那能看到的比如姓名啊，年龄啊等。我们在设计一个对象的时候也是一样，需要暴露出来一些东西，
+			那这里我们的 ClaimsIdentity 就暴露出来一个 Name，Lable等。
+
+			我们造的身份证（ClaimsIdentity）还有一个重要的属性就是类型（AuthenticationType），等等，AuthenticationType是什么东西？看起来有点眼熟的样子。
+			我们知道我们自己的身份证是干嘛的吧，就是用来证明我们的身份的，在你证明身份出示它的时候，其实它有很多种形式载体的，什么意思呢？
+			比如你可以直接拿出实体形式的身份证，那也可以是纸张形式的复印件，也可以是电子形式的电子码等等，
+			这个时候就需要有一个能够表示其存在形式的类型字段，对，这个AuthenticationType就是干这个事情的。
+
+			然后我们在给我们的身份证添加一些润色，让其看起来好看，比如提供一些方法添加 Claims 的，删除 Claims的，写到二进制流里面的啊等等，
+			最终我们的身份证对象看起来基本上是这样了：
+				
+				public class ClaimsIdentity
+				{
+				    public ClaimsIdentity(IEnumerable<Claim> claims){}
+				    
+				    //名字这么重要，当然不能让别人随便改啊，所以我不许 set，除了我儿子跟我姓，所以是 virtual 的
+				    public virtual string Name { get; }
+				    public string Label { get; set; }
+				    
+				    //这是我的证件类型，也很重要，同样不许 set
+				    public virtual string AuthenticationType { get; }
+				    
+				    public virtual void AddClaim(Claim claim);
+				    
+				    public virtual void RemoveClaim(Claim claim);
+				    
+				    public virtual void FindClaim(Claim claim);
+				}
+
+			嗯，到这里，我们的身份证看起来似乎很完美了，但是从面向对象的角度来说好像还少了点什么东西？ 
+			对，还是抽象，我们需要抽象出来一个接口来进行一些约束，约束什么呢？既然作为一个证件，那么肯定会涉及到这几个属性信息：
+				1、名字。
+				2、类型。
+				3、证件是否合法。
+
+			反应到接口里面的话就是如下，我们给接口取个名字叫：“身份(IIdentity)”：
+				这里延伸第二个知识点：IIdentity接口。
+				
+				// 定义证件对象的基本功能。
+				public interface IIdentity
+				{
+				    //证件名称
+				    string Name { get; }
+				    
+				    // 用于标识证件的载体类型。
+				    string AuthenticationType { get; }
+				    
+				    //是否是合法的证件。
+				    bool IsAuthenticated { get; }
+				}
+				
+			所以我们的 ClaimsIdentity 最终看起来定义就是这样的了：
+				public class ClaimsIdentity : IIdentity
+				{
+				    //......
+				}
+
+			ClaimsIdentity 介绍完毕，它叫 “身份证”。
+
+		ClaimsPrincipal（证件当事人）
+			有了身份证，我们就能证明我就是我了，有些时候一个人有很多张身份证，你猜这个人是干嘛的？ 对，不是黄牛就是诈骗犯。
+
+			但是，有些时候一个人还有其他很多种身份，你猜这个人是干嘛的？这就很正常了对不对，比如你可以同时是一名教师，母亲，商人。
+			如果你想证明你同时有这几种身份的时候，你可能需要出示教师证，你孩子的出生证，法人代表的营业执照证。
+
+			在程序中，一个身份证不仅仅代表你这个人了，而是代表一个身份，是证明你自己的主要身份哦。如果一个人还有其他很多种身份，
+			这个时候就需要有一个东西（载体）来携带着这些证件了对吧？OK，我们给需要携带证件的这个对象取一个贴切点的名字，叫“证件当事人（ClaimsPrincipal）”吧。
+
+			知道其功能后，代码就很好写了，和上面ClaimsIdentity一样的套路：
+				public class ClaimsPrincipal 
+				{
+				    //把拥有的证件都给当事人
+				    public ClaimsPrincipal(IEnumerable<ClaimsIdentity> identities){}
+				    
+				    //当事人的主身份呢
+				    public virtual IIdentity Identity { get; }
+				    
+				    public virtual IEnumerable<ClaimsIdentity> Identities { get; }
+				    
+				    public virtual void AddIdentity(ClaimsIdentity identity);
+				    
+				    //为什么没有RemoveIdentity ， 留给大家思考吧？
+				}
+
+			ClaimsPrincipal 介绍完了，它叫 “证件当事人”。
+
+		Scheme（方案）：
+			音译：方案，简单了说就是使用什么方式来验证身份，常见的有cookie、jwt web token，这里主要使用jwt讲解
+
+		Authentication(鉴权) Authorization（授权）：
+			鉴权的英文单词是：Authentication
+			授权的英文单词是：Authorization
+
+			鉴权：鉴定身份，有没有登录，你是谁
+			授权：判定有没有权限
+
+		名词汇总：
+			Claim：
+				信息
+			ClaimsIdentity：
+				身份	
+			ClaimsPrincipal：
+				一个人可以有多个身份	
+			Scheme：
+				方案
+			Policy：
+				政策：规则，必须满足某一个规则，比如必须使用qq邮箱或者手机号登录
+			Role：
+				角色:其实就是一种Policy，是一种封装好的Policy，两者都是规则
+			AuthenticationSchemes：
+				鉴权：读取用户身份信息，不同位置，不同解析方式，例如从URL,Sersion等读取，不同的位置读取就是不同的Schemes。
+				指定用户rr信息的来源，可能多个来源的合集里面去筛选（JWT的角色+Cokkie里面的Age）。
+			AuthenticationTicket：
+				用户票据	
+			Authentication：
+				鉴权：鉴定身份，有没有登录，你是谁
+			Authorization：
+				授权：判定有没有权限
+
+			登录写入凭证
+			鉴权就是找出用户
+			授权就是判断权限
+			退出就是清理凭证
+
+			授权：AddAuthorization=》就是判断能不能访问，规则+数据来源；
+
+			Authorize特性：
+				Policy：
+					策略-规则，确定什么条件
+				Roles：
+					角色—就是一个封装好的Policy，也是规则
+				AuthenticationSchemes：
+					指定用户信息的来源，可能多个来源的合集里面去筛选（JWT的角色+Cookie的Age）
+
+			其中Policy和Roles指定的是规则，AuthenticationSchemes指定来源.
+
+			鉴权：
+				如果使用鉴权，必须打开UseAuthentication中间件,鉴权就是解析用户信息的,解析完成以后放在base HttpContex.User里面
+
+				1、添加中间件
+					app.UseAuthentication();
+				2、IOC容器注入,只有AddAuthentication是不行的，只有容器注册，里面没有指定使用什么靠什么方式解析用户信息.
+					services.AddAuthentication(options =>
+					{
+					   options.DefaultAuthenticateScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+					})
+					.AddCookie();
+					//指定一个方案,并使用Cookie的方式解析
+
+				ClaimsIDentity :解析出来的客户信息放进来,返回给客户端.
+				Claim:键值对,ClaimTypes类型,string Value.,字典一个key 一个value
+
+					base.httpcontext.SignInasync把 ClaimIdentity包装到ClaimsPrincipal里面返回给客户端.
+
+				基本流程
+					UseAuthentication 表示使用这个中间件
+					AddAuthentication必须指定默认Scheme,且AddCookie
+
+				service.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)//要授权
+					   .AddCookie();//使用Cookie的方式	   
+
+			微服务授权中心：
+				默认的Swagger里面看不到post 生成Token，所以使用postman测试，需要注意的
+
+				直接在网关层配置JWT+配置文件，通过网关访问微服务的时候就可以实现鉴权授权，但如果对方直接调用微服务本身的链接还是可以不需要授权直接访问的，
+				所以更加细节化的授权策略还是需要在微服务内部手动来写。
+
+			网关层基本校验：
+				网关层
+					配置文件 配置微服务是否需要鉴权
+						"AuthenticationOptions": {
+							"AuthenticationProviderKey": "UserGatewayKey",
+							"AllowedScopes": []
+						},
+
+					注入鉴权服务
+						var authenticationProviderKey = "UserGatewayKey";
+						builder.Services.AddAuthentication("Bearer")
+						   .AddIdentityServerAuthentication(authenticationProviderKey, options =>
+						   {
+						       options.Authority = "http://localhost:7200";
+						       options.ApiName = "UserApi";
+						       options.RequireHttpsMetadata = false;
+						       options.SupportedTokens = SupportedTokens.Both;
+						   });
+
+					一个服务里面有的需要授权，有的需要授权-配置多个路由就可以了
+						一个带鉴权的路由
+						一个不带鉴权的路由
+					复杂策略policy，5个角色，下端需要用户信息等
+					综合来说，其实生产环境下，网关只负责鉴权和有效性，但是用户信息获取 授权检测 服务实例自己完成的。
+
+			网关对服务的作用域角色进行校验：
+				
+
+
+
+
+
+
+
+
+

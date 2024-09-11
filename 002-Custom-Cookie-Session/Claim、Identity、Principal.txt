@@ -1,0 +1,78 @@
+﻿Asp.Net Core 基于Cookies的认证，自定义认证方案：
+	Asp.Net Core 认证：
+		认证：
+			认证票据：
+				Asp.Net Core默认采用基于“票据”的认证机制
+
+				安全令牌：及认证票据，通过AuthenticationMiddleware中间件实现，按指定的认证方案（Authentication Scheme）从请求中提取能验证用户真实的信息。
+
+				对应3种角色称为Ticket Issuer、Authenticator、Ticket Revoker
+
+			身份与用户：
+				通过IPrincipal对象表示用户拥有一个或多个通过IIdentity对象表示的身份
+
+				Claim声明，用户在某个方面的一种陈述，它可以描述用户身份认证相关的任何信息例如：E-mail，电话号码或者指纹
+
+				IIdentity 身份信息，用户以某个声称的身份访问目标应用，认证的目的在于确定请求者是否与其声称的这个身份相符
+
+				ClaimsIdentity 一个身份信息，继承IIdentity，使用Claim集合，采用声明来描述的身份，Claim集合->描述身份。
+
+				GenericIdentity 泛化的身份，继承于ClaimsIdentity，表示一种身份信息。
+
+				IPrincipal 必须含一种身份
+
+				ClaimsPrincipal 必须含一个主体身份，包含多个其他身份（ps：一个用户可以拥有多个身份）
+
+				GenericPrincipal 泛化后的ClaimsPrincipal
+
+			认证模型：
+				IPrincipal 对与Asp.Net Core应用的认证系统来说，接受认证的对象可能是个人，也可能是个应用、进程或者服务。（该接口定义：定义主体对象的基本功能）
+
+				ClaimsPrincipal 可表示为一个主体对象
+
+				AuthenticationTicket 认证票据
+
+				AuthenticationProperties 对认证票据的描述
+
+			认证处理器构成：
+				质询/响应模式：
+					体现为一种消息交换模型
+					如果服务器判断客户端未提供有效认证票据，则它向客户端发送一个质询消息
+					质询，第一次服务器返回401 Unauthorized，第二次服务返回403 Forbidden
+					匿名请求下 ->质询 ChallengeAsync
+					权限不足 ->禁止 ForbidAsync
+
+				一个完整的认证方案的3个核心操作
+					请求认证
+					登录
+					注销
+
+				认证处理器相关接口
+					IAuthenticationHandler
+						AuthenticateAsync对每个请求执行认证
+						ChallengeAsync和ForbidAsync实现质询
+						InitializeAsync执行IAuthenticationHandler初始化工作
+
+					1. AuthenticationOptions 配置认证方案
+					2. IAuthenticationSchemeProvider 提供认证处理方案
+					3. IAuthenticationHandlerProvider 提供认证处理器
+					4. IAuthenticationHandler 认证处理器
+
+				Asp.Net Core 默认使用Cookie认证方案：
+					CookieAuthenticationHandler 默认的Cookie认证处理器
+
+					CookieAuthenticationEvents 事件机制 > 对整个认证流程实施干预
+
+					将ClaimsPrincipal用户主体信息、authenticationScheme认证方案名称、AuthenticationProperties认证相关的属性组合生成AuthenticationTicket“票据”，
+					加密转换为string，加入到Cookie中发送回客户端
+
+
+
+
+
+
+
+
+
+
+	

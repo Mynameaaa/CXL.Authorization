@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>_004_JWT_Custom</RootNamespace>
+  </PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.Aspnetcore.Authentication.Jwtbearer" Version="6.0.19" />
+		<PackageReference Include="Microsoft.AspNetCore.Authorization" Version="8.0.8" />
+		<PackageReference Include="Nito.AsyncEx" Version="5.1.2" />
+		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.7.3" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\003-JWT\003-JWT-Microsoft.csproj" />
+	</ItemGroup>
+
+</Project>

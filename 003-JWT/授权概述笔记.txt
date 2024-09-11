@@ -1,0 +1,347 @@
+﻿概述：
+	ASP.NET Core中的授权方式有很多，我们一起了解一下其中三种较为常见的方式：
+		基于角色的授权
+		基于声明的授权
+		基于策略的授权
+
+		其中，基于策略的授权是我们要了解的重点。
+
+		在进入正文之前，我们要先认识一个很重要的特性——AuthorizeAttribute，通过它，我们可以很方便的针对Controller、Action等维度进行权限控制：
+
+			[AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true, Inherited = true)]
+            public class AuthorizeAttribute : Attribute, IAuthorizeData
+            {
+                public AuthorizeAttribute() { }
+            
+                public AuthorizeAttribute(string policy)
+                {
+                    Policy = policy;
+                }
+            
+                // 策略
+                public string? Policy { get; set; }
+            
+                // 角色，可以通过英文逗号将多个角色分隔开，从而形成一个列表
+                public string? Roles { get; set; }
+            
+                // 身份认证方案，可以通过英文逗号将多个身份认证方案分隔开，从而形成一个列表
+                public string? AuthenticationSchemes { get; set; }
+            }
+
+    基于角色的授权：
+        顾名思义，基于角色的授权就是检查用户是否拥有指定角色，如果是则授权通过，否则不通过。
+
+        例如：
+            [Authorize(Roles = "Admin")]
+            public string GetForAdmin()
+            {
+                return "Admin only";
+            }
+
+        这里，我们将AuthorizeAttribute特性的Roles属性设置为了Admin，也就是说，如果用户想要访问GetForAdmin接口，则必须拥有角色Admin。
+        如果某个接口想要允许多个角色访问，该怎么做呢？很简单，通过英文逗号（,）分隔多个角色即可：
+            [Authorize(Roles = "Developer,Tester")]
+            public string GetForDeveloperOrTester()
+            {
+                return "Developer || Tester";
+            }
+
+        就像上面这样，通过逗号将Developer和Tester分隔开来，当接到请求时，若用户拥有角色Developer和Tester其一，就允许访问该接口。
+
+        最后，如果某个接口要求用户必须同时拥有多个角色时才允许访问，那我们可以通过添加多个AuthorizeAttribute特性来达到目的：
+            [Authorize(Roles = "Developer")]
+            [Authorize(Roles = "Tester")]
+            public string GetForDeveloperAndTester()
+            {
+                return "Developer && Tester";
+            }
+
+        只有当用户同时拥有角色Developer和Tester时，才允许访问该接口。
+
+        在颁发身份票据时，可以通过声明添加角色，例如：
+            public async Task<IActionResult> LoginForAdmin()
+            {
+                var identity = new ClaimsIdentity(CookieAuthenticationDefaults.AuthenticationScheme);
+                identity.AddClaims(new[]
+                {
+                    new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString("N")),
+                    new Claim(ClaimTypes.Name, "AdminOnly"),
+                    // 添加角色Admin
+                    new Claim(ClaimTypes.Role, "Admin")
+                });
+            
+                var principal = new ClaimsPrincipal(identity);
+            
+                await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
+            
+                return Ok();
+            }
+
+    基于声明的授权：
+        上面介绍的基于角色的授权，实际上就是基于声明中的“角色”来实现的，而基于声明的授权，则将范围扩展到了所有声明（而不仅仅是角色）。
+
+        基于声明的授权，是在基于策略的授权基础上实现的。为什么这么说呢？因为我们需要通过添加策略来使用声明：
+            public class Startup
+            {
+                public void ConfigureServices(IServiceCollection services)
+                {
+                    services.AddAuthorization(options =>
+                    {
+                        // ... 可以在此处添加策略
+                    });
+                }
+            }
+
+        一个简单的声明策略如下：
+            options.AddPolicy("RankClaim", policy => policy.RequireClaim("Rank"));
+
+            该策略名称为RankClaim，要求用户具有声明Rank，具体Rank对应的值是多少，不关心，只要有这个声明就好了。
+            
+        当然，我们也可以将Rank的值限定一下：
+            options.AddPolicy("RankClaimP3", policy => policy.RequireClaim("Rank", "P3"));
+            options.AddPolicy("RankClaimM3", policy => policy.RequireClaim("Rank", "M3"));
+
+            我们添加了两条策略：RankClaimP3和RankClaimM3，除了要求用户具有声明Rank外，还分别要求Rank的值为P3和M3。
+
+        类似于基于角色的声明，我们也可以添加“Or”、“And”逻辑的策略：
+            options.AddPolicy("RankClaimP3OrM3", policy => policy.RequireClaim("Rank", "P3", "M3"));
+            options.AddPolicy("RankClaimP3AndM3", policy => policy.RequireClaim("Rank", "P3").RequireClaim("Rank", "M3"));
+
+        策略RankClaimP3OrM3要求用户具有声明Rank，且值为P3或M3即可；
+        而策略RankClaimP3AndM3要求用户具有声明Rank，且值必须同时包含P3和M3。
+            
+            // 仅要求用户具有声明“Rank”，不关心值是多少
+            [Authorize(Policy = "RankClaim")]
+            public string GetForRankClaim()
+            {
+                return "Rank claim only";
+            }
+            
+            // 要求用户具有声明“Rank”，且值为“M3”
+            [HttpGet("GetForRankClaimP3")]
+            [Authorize(Policy = "RankClaimP3")]
+            public string GetForRankClaimP3()
+            {
+                return "Rank claim P3";
+            }
+            
+            // 要求用户具有声明“Rank”，且值为“P3” 或 “M3”
+            [Authorize(Policy = "RankClaimP3OrM3")]
+            public string GetForRankClaimP3OrM3()
+            {
+                return "Rank claim P3 || M3";
+            }
+
+        表示“And”逻辑的策略可以有两种写法：
+            // 要求用户具有声明“Rank”，且值为“P3” 和 “M3”
+            [Authorize(Policy = "RankClaimP3AndM3")]
+            public string GetForRankClaimP3AndM3V1()
+            {
+                return "Rank claim P3 && M3";
+            }
+            
+            // 要求用户具有声明“Rank”，且值为“P3” 和 “M3”
+            [Authorize(Policy = "RankClaimP3")]
+            [Authorize(Policy = "RankClaimM3")]
+            public string GetForRankClaimP3AndM3V2()
+            {
+                return "Rank claim P3 && M3";
+            }
+            
+        另外，有时候声明策略略微有些复杂，可以使用RequireAssertion来实现：
+            options.AddPolicy("ComplexClaim", policy => policy.RequireAssertion(context =>
+                context.User.HasClaim(c => (c.Type == "Rank" || c.Type == "Name") && c.Issuer == "Issuer")));
+
+    基于策略的授权：
+        通常来说，以上两种授权方式仅适用于较为简单的业务场景，而当业务场景比较复杂时，它俩就显得无能为力了。
+        因此，我们必须能够设计更加自由的策略，也就是基于策略的授权。
+
+        基于策略的授权，我打算将其分成两种类型来介绍：简单策略和动态策略。
+
+        简单策略：
+            在上面，我们制定策略时，使用了大量的RequireXXX，我们也希望能够将自定义策略封装一下，当然，你可以写一些扩展方法，
+            不过我更加推荐使用IAuthorizationRequirement和IAuthorizationHandler。
+
+            现在，我们虚构一个场景：网吧管理，未满18岁的人员不准入内，只允许年满18岁的成年人进入。为此，我们需要一个限定最小年龄的要求：
+
+                public class MinimumAgeRequirement : IAuthorizationRequirement
+                {
+                    public MinimumAgeRequirement(int minimumAge) =>
+                       MinimumAge = minimumAge;
+                
+                    public int MinimumAge { get; }
+                }
+
+            现在，要求有了，我们还需要一个授权处理器，来校验用户是否真的达到了指定年龄：
+                public class MinimumAgeAuthorizationHandler : AuthorizationHandler<MinimumAgeRequirement>
+                {
+                    protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, MinimumAgeRequirement requirement)
+                    {
+                        // 这里生日信息可以从其他地方获取，如数据库，不限于声明
+                        var dateOfBirthClaim = context.User.FindFirst(c => c.Type == ClaimTypes.DateOfBirth);
+                
+                        if (dateOfBirthClaim is null)
+                        {
+                            return Task.CompletedTask;
+                        }
+                
+                        var today = DateTime.Today;
+                        var dateOfBirth = Convert.ToDateTime(dateOfBirthClaim.Value);
+                        int calculatedAge = today.Year - dateOfBirth.Year;
+                        if (dateOfBirth > today.AddYears(-calculatedAge))
+                        {
+                            calculatedAge--;
+                        }
+                
+                        // 若年龄达到最小年龄要求，则授权通过
+                        if (calculatedAge >= requirement.MinimumAge)
+                        {
+                            context.Succeed(requirement);
+                        }
+                
+                        return Task.CompletedTask;
+                    }
+                }
+
+            当校验通过时，调用context.Succeed来指示授权通过。当校验不通过时，我们有两种处理方式：
+                1、一种是直接返回Task.CompletedTask，这将允许后续的Handler继续进行校验，这些Handler中任意一个认证通过，都视为该用户授权通过。
+
+                2、另一种是通过调用context.Fail来指示授权不通过，并且后续的Handler仍会执行（即使后续的Handler有授权通过的，也视为授权不通过）。
+                如果你想在调用context.Fail后，立即返回而不再执行后续的Handler，
+                可以将选项AuthorizationOptions的属性InvokeHandlersAfterFailure设置为false来达到目的，默认为true。
+
+            现在，我们给虚构的场景增加一个授权逻辑：当用户未满18岁，但是其角色为网吧老板时，也允许其入内。
+
+            为了实现这个逻辑，我们再增加一个授权处理器：
+                public class MinimumAgeAnotherAuthorizationHandler : AuthorizationHandler<MinimumAgeRequirement>
+                {
+                    protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, MinimumAgeRequirement requirement)
+                    {
+                        var isBoss = context.User.IsInRole("InternetBarBoss");
+                
+                        if (isBoss)
+                        {
+                            context.Succeed(requirement);
+                        }
+                
+                        return Task.CompletedTask;
+                    }
+                }
+
+            授权要求和授权处理器我们都已经实现了，接下来就是添加策略了，不过在这之前，不要忘了注入我们的要求和授权处理器：
+                public class Startup
+                {
+                    public void ConfigureServices(IServiceCollection services)
+                    {
+                        services.TryAddEnumerable(ServiceDescriptor.Transient<IAuthorizationHandler, MinimumAgeAuthorizationHandler>());
+                        services.TryAddEnumerable(ServiceDescriptor.Transient<IAuthorizationHandler, MinimumAgeAnotherAuthorizationHandler>());
+                        
+                        services.AddAuthorization(options =>
+                        {
+                            options.AddPolicy("AtLeast18Age", policy => policy.Requirements.Add(new MinimumAgeRequirement(18)));
+                        });
+                    }
+                }
+
+            需要注意的是，我们可以将Handler注册为任意的生命周期，不过，当Handler中依赖其他服务时，一定要注意生命周期提升的问题。
+
+            我们添加了一个名为AtLeast18Age的策略，该策略创建了一个MinimumAgeRequirement实例，要求最低年龄为18岁，并将其添加到了policy的Requirements属性中。
+
+        动态策略：
+           现在，问题又来了，如果我们的场景有多种年龄限制，比如有的要求18岁，有的要求20，还有的只要求10岁，我们总不能一个个的把这些策略都提前创建好吧，
+           要搞死人...如果能够动态地创建策略就好了！ 
+
+           下面我们尝试动态地创建多种最小年龄策略：
+                首先，继承AuthorizeAttribute来实现一个自定义授权特性MinimumAgeAuthorizeAttribute：
+
+                    public class MinimumAgeAuthorizeAttribute : AuthorizeAttribute
+                    {
+                        // 策略名前缀
+                        public const string PolicyPrefix = "MinimumAge";
+                    
+                        // 通过构造函数传入最小年龄
+                        public MinimumAgeAuthorizeAttribute(int minimumAge) =>
+                            MinimumAge = minimumAge;
+                    
+                        public int MinimumAge
+                        {
+                            get
+                            {
+                                // 从策略名中解析出最小年龄
+                                if (int.TryParse(Policy[PolicyPrefix.Length..], out var age))
+                                {
+                                    return age;
+                                }
+                    
+                                return default;
+                            }
+                            set
+                            {
+                                // 生成动态的策略名，如 MinimumAge18 表示最小年龄为18的策略
+                                Policy = $"{PolicyPrefix}{value}";
+                            }
+                        }
+                    }
+
+                逻辑很简单，就是将策略名前缀+传入的最小年龄参数动态地拼接为一个策略名，并且还可以通过策略名反向解析出最小年龄。
+
+                好了，现在策略名可以动态创建了，那下一步就是根据策略名动态创建出策略实例了，
+                可以通过替换接口IAuthorizationPolicyProvider的默认实现来达到目的：
+                    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
