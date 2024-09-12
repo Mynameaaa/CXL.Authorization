@@ -171,6 +171,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseAuthentication();
 
+//app.UseMiddleware<CXLAuthorizationMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();

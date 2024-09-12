@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using Newtonsoft.Json.Linq;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Principal;
@@ -73,17 +74,45 @@ namespace _004_JWT_Custom.Service
                 return AuthenticateResult.Fail(token.Item2);
             }
 
-            var principal = ValidateToken(token.Item2);
+            #region Token 验证
 
-            if (principal == null)
+            ClaimsPrincipal claimsPrincipal = null;
+
+            try
             {
-                // Token 无效，返回 401 错误
-                _challengeMessages.Add("Message", "无效的 Token");
-                return AuthenticateResult.Fail("Token 无效");
+                var tokenHandler = new JwtSecurityTokenHandler();
+
+                var validationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = base.Options.SecretKey, // 设置签名密钥
+                    ValidateIssuer = base.Options.ValidateIssuer,  // 验证发行者
+                    ValidateAudience = base.Options.ValidateAudience,  // 验证观众
+                    ValidAudience = base.Options.Audience,
+                    ValidIssuer = base.Options.Issuer,
+                    ValidateLifetime = true, // 验证生命周期
+                    ClockSkew = TimeSpan.FromSeconds(30) // 时钟偏移
+                };
+
+                SecurityToken validatedToken;
+                var principal = tokenHandler.ValidateToken(token.Item2, validationParameters, out validatedToken);
+                claimsPrincipal = principal;
+            }
+            catch (SecurityTokenExpiredException ex)
+            {
+                _challengeMessages.Add("message", "Token 信息已过期请重新获取");
+                return AuthenticateResult.Fail(string.Empty);
+            }
+            catch (SecurityTokenSignatureKeyNotFoundException ex)
+            {
+                _challengeMessages.Add("message", "无效的 Token 信息");
+                return AuthenticateResult.Fail(string.Empty);
             }
 
+            #endregion
+
             // 构建 AuthenticationTicket
-            var authentication = new AuthenticationTicket(principal, Scheme.Name);
+            var authentication = new AuthenticationTicket(claimsPrincipal, Scheme.Name);
 
             return AuthenticateResult.Success(authentication);
         }
@@ -123,26 +152,10 @@ namespace _004_JWT_Custom.Service
             return (true, token);
         }
 
-        private ClaimsPrincipal ValidateToken(string Token)
-        {
-            var tokenHandler = new JwtSecurityTokenHandler();
+        //private ClaimsPrincipal ValidateToken(string Token)
+        //{
 
-            var validationParameters = new TokenValidationParameters
-            {
-                ValidateIssuerSigningKey = true,
-                IssuerSigningKey = base.Options.SecretKey, // 设置签名密钥
-                ValidateIssuer = base.Options.ValidateIssuer,  // 验证发行者
-                ValidateAudience = base.Options.ValidateAudience,  // 验证观众
-                ValidAudience = base.Options.Audience,
-                ValidIssuer = base.Options.Issuer,
-                ValidateLifetime = true, // 验证生命周期
-                ClockSkew = TimeSpan.FromSeconds(30) // 时钟偏移
-            };
-
-            SecurityToken validatedToken;
-            var principal = tokenHandler.ValidateToken(Token, validationParameters, out validatedToken);
-            return principal;
-        }
+        //}
 
         protected override Task HandleForbiddenAsync(AuthenticationProperties properties)
         {
