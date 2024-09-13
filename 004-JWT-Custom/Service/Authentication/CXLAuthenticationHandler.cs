@@ -143,10 +143,16 @@ namespace _004_JWT_Custom.Service
                 }
                 catch (SecurityTokenExpiredException)
                 {
+                    if (!useRefreshToken)
+                    {
+                        _challengeMessages.Add("message", "Token 已过期请重新登录");
+                        return AuthenticateResult.Fail(string.Empty);
+                    }
+
                     // access_token 过期了，检查是否存在 refresh_token
                     var refreshToken = InitToken("refresh_token");
 
-                    if ((!refreshToken.Item1 || string.IsNullOrWhiteSpace(refreshToken.Item2)) && useRefreshToken)
+                    if ((!refreshToken.Item1 || string.IsNullOrWhiteSpace(refreshToken.Item2)))
                     {
                         _challengeMessages.Add("message", "Token 已过期请重新登录");
                         return AuthenticateResult.Fail(string.Empty);

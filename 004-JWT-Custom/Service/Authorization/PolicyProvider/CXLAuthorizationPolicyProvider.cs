@@ -26,7 +26,7 @@ public class CXLAuthorizationPolicyProvider : IAuthorizationPolicyProvider
     }
 
     public Task<AuthorizationPolicy> GetFallbackPolicyAsync()
-    {
+        {
         // 可选：为某些情况下返回备用策略
         var result = _fallbackPolicyProvider.GetFallbackPolicyAsync();
         return result;
