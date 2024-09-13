@@ -24,7 +24,7 @@ namespace _004_JWT_Custom.Controllers
         }
 
         [HttpPost]
-        [Authorize(Policy = "CustomValidationAge"), CXLAuthPolicy("CXLPolicyName")]
+        [Authorize, CXLAuthPolicy("CXLPolicyName", "CustomValidationAge")]
         public string ValidateToken()
         {
             return "Success";

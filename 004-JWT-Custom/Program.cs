@@ -1,6 +1,7 @@
 using _004_JWT_Custom;
 using _004_JWT_Custom.Service;
 using _004_JWT_Custom.Service.Authorization;
+using _004_JWT_Custom.Service.Authorization.Filter;
 using _004_JWT_Custom.Service.鉴权相关;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -17,7 +18,11 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton(new Appsettings(builder.Configuration));
 
 // Add services to the container.
-builder.Services.AddControllers();
+builder.Services.AddControllers(options =>
+{
+    options.Filters.Add<CXLAuthorizationFilter>();
+});
+
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -46,7 +51,7 @@ builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IAuthorizationHand
 
 
 //授权相关服务
-builder.Services.AddTransient<IAuthorizationService, CXLAuthorizationService>();
+builder.Services.AddSingleton<IAuthorizationService, CXLAuthorizationService>();
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, CXLAuthorizationPolicyProvider>();
 builder.Services.AddSingleton<IAuthorizationHandlerContextFactory, CXLAuthorizationHandlerContextFactory>();
 builder.Services.AddSingleton<IAuthorizationEvaluator, CXLAuthorizationEvaluator>();
@@ -121,7 +126,6 @@ builder.Services.AddAuthorization(options =>
 
     //包含 StoreName 并且值为 Root 和 Admin
     options.AddPolicy("CustomAgeValueAnyOne", policy => policy.RequireClaim("StoreName", "Root").RequireClaim("Admin"));
-
 
     //包含角色 Claim 或者 名称 Claim
     options.AddPolicy("CustomRoleOrName", policy =>
