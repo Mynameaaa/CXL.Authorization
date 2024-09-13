@@ -29,17 +29,5 @@ namespace _004_JWT_Custom.Controllers
             })
             .ToArray();
         }
-
-        [HttpPost]
-        public string CreateToken()
-        {
-            return JwtHelper.IssueJwt(new TokenModelJwt()
-            {
-                Role = "Admin,User,Back",
-                Uid = 666,
-                Work = "Token,Order,Stock"
-            });
-        }
-
     }
 }

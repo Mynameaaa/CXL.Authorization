@@ -13,6 +13,8 @@ namespace _004_JWT_Custom.Service
 
         public bool ValidateAudience { get; set; }
 
+        public bool ValidateSecretKey { get; set; }
+
         public string Audience { get; set; }
 
         public bool ValidateIssuer { get; set; }

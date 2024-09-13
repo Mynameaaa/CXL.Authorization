@@ -1,127 +1,141 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IdentityModel.Tokens.Jwt;
-using System.Linq;
-using System.Security.Claims;
-using System.Text;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
-using Microsoft.IdentityModel.Tokens;
+﻿//using System;
+//using System.IdentityModel.Tokens.Jwt;
+//using System.IO;
+//using System.Security.Claims;
+//using System.Security.Cryptography;
+//using Microsoft.AspNetCore.Authentication;
+//using Microsoft.IdentityModel.Tokens;
 
-namespace _004_JWT_Custom
-{
-    public class JwtHelper
-    {
+//namespace _004_JWT_Custom;
+//public class JWTHelper
+//{
+//    private readonly string _privateKeyPath;
+//    private readonly string _publicKeyPath;
 
-        /// <summary>
-        /// 颁发JWT字符串
-        /// </summary>
-        /// <param name="tokenModel"></param>
-        /// <returns></returns>
-        public static string IssueJwt(TokenModelJwt tokenModel)
-        {
-            string iss = Appsettings.app(new string[] { "Audience", "Issuer" });
-            string aud = Appsettings.app(new string[] { "Audience", "Audience" });
-            string secret = Appsettings.app(new string[] { "Audience", "Secret" });
+//    public JWTHelper(string privateKeyPath, string publicKeyPath)
+//    {
+//        _privateKeyPath = privateKeyPath;
+//        _publicKeyPath = publicKeyPath;
+//    }
 
-            var claims = new List<Claim>
-                {
-                 /*
-                 * 特别重要：
-                   1、这里将用户的部分信息，比如 uid 存到了Claim 中，如果你想知道如何在其他地方将这个 uid从 Token 中取出来，请看下边的SerializeJwt() 方法，或者在整个解决方案，搜索这个方法，看哪里使用了！
-                   2、你也可以研究下 HttpContext.User.Claims ，具体的你可以看看 Policys/PermissionHandler.cs 类中是如何使用的。
-                 */
-                 new Claim(JwtRegisteredClaimNames.Jti, tokenModel.Uid.ToString()),
-                new Claim(JwtRegisteredClaimNames.Iat, $"{new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds()}"),
-                new Claim(JwtRegisteredClaimNames.Nbf,$"{new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds()}") ,
-                //这个就是过期时间，目前是过期1000秒，可自定义，注意JWT有自己的缓冲过期时间
-                new Claim (JwtRegisteredClaimNames.Exp,$"{new DateTimeOffset(DateTime.Now.AddSeconds(100000)).ToUnixTimeSeconds()}"),
-                new Claim(ClaimTypes.Expiration, DateTime.Now.AddSeconds(1000).ToString()),
-                new Claim(JwtRegisteredClaimNames.Iss,iss),
-                new Claim(JwtRegisteredClaimNames.Aud,aud),
+//    // Generate access and refresh token
+//    public (string accessToken, string refreshToken) GenerateTokens(TokenDataModel tokenData)
+//    {
+//        var accessToken = GenerateToken(tokenData, expiresInMinutes: 15);  // Shorter expiration time for accessToken
+//        var refreshToken = GenerateToken(tokenData, expiresInMinutes: 60 * 24 * 7);  // Longer expiration for refreshToken (e.g., 1 week)
+//        return (accessToken, refreshToken);
+//    }
 
-               };
+//    // Generate a token (used for both access and refresh tokens)
+//    private string GenerateToken(TokenDataModel tokenData, int expiresInMinutes)
+//    {
+//        var key = File.ReadAllBytes(_privateKeyPath);
+//        var signingKey = new RsaSecurityKey(RSA.Create());
+//        signingKey.ImportRSAPrivateKey(key, out _);
 
-            // 可以将一个用户的多个角色全部赋予；
-            claims.AddRange(tokenModel.Role.Split(',').Select(s => new Claim(ClaimTypes.Role, s)));
+//        var tokenDescriptor = new SecurityTokenDescriptor
+//        {
+//            Subject = new ClaimsIdentity(new Claim[]
+//            {
+//                new Claim(JwtRegisteredClaimNames.Sub, tokenData.UserId.ToString()),
+//                new Claim(JwtRegisteredClaimNames.UniqueName, tokenData.Username),
+//                new Claim(ClaimTypes.Role, tokenData.Role)
+//            }),
+//            Expires = DateTime.UtcNow.AddMinutes(expiresInMinutes),
+//            SigningCredentials = new SigningCredentials(signingKey, SecurityAlgorithms.RsaSha256)
+//        };
 
-            //秘钥 (SymmetricSecurityKey 对安全性的要求，密钥的长度太短会报出异常)
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
-            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+//        var tokenHandler = new JwtSecurityTokenHandler();
+//        var token = tokenHandler.CreateToken(tokenDescriptor);
+//        return tokenHandler.WriteToken(token);
+//    }
 
-            var jwt = new JwtSecurityToken(
-                issuer: iss,
-                claims: claims,
-                signingCredentials: creds);
+//    // Parse the token to get the payload (without validation)
+//    public TokenDataModel ParseToken(string token)
+//    {
+//        var tokenHandler = new JwtSecurityTokenHandler();
+//        var rsa = RSA.Create();
+//        rsa.ImportSubjectPublicKeyInfo(File.ReadAllBytes(_publicKeyPath), out _);
 
-            var jwtHandler = new JwtSecurityTokenHandler();
-            var encodedJwt = jwtHandler.WriteToken(jwt);
+//        var validationParameters = new TokenValidationParameters
+//        {
+//            ValidateIssuerSigningKey = true,
+//            IssuerSigningKey = new RsaSecurityKey(rsa),
+//            ValidateIssuer = false,
+//            ValidateAudience = false,
+//            ValidateLifetime = false  // Not validating lifetime here, just extracting payload
+//        };
 
-            return encodedJwt;
-        }
+//        ClaimsPrincipal principal = tokenHandler.ValidateToken(token, validationParameters, out _);
+//        var userId = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+//        var username = principal.FindFirst(JwtRegisteredClaimNames.UniqueName)?.Value;
+//        var role = principal.FindFirst(ClaimTypes.Role)?.Value;
 
-        /// <summary>
-        /// 解析
-        /// </summary>
-        /// <param name="jwtStr"></param>
-        /// <returns></returns>
-        public static TokenModelJwt SerializeJwt(string jwtStr)
-        {
-            var jwtHandler = new JwtSecurityTokenHandler();
-            TokenModelJwt tokenModelJwt = new TokenModelJwt();
+//        return new TokenDataModel
+//        {
+//            UserId = Convert.ToInt32(userId),
+//            Username = username,
+//            Role = role
+//        };
+//    }
 
-            // token校验
-            if (!string.IsNullOrEmpty(jwtStr) && jwtHandler.CanReadToken(jwtStr))
-            {
+//    // Validate the token (including signature and expiration)
+//    public bool ValidateToken(string token, out TokenDataModel payload)
+//    {
+//        var tokenHandler = new JwtSecurityTokenHandler();
+//        var rsa = RSA.Create();
+//        rsa.ImportSubjectPublicKeyInfo(File.ReadAllBytes(_publicKeyPath), out _);
 
-                JwtSecurityToken jwtToken = jwtHandler.ReadJwtToken(jwtStr);
+//        var validationParameters = new TokenValidationParameters
+//        {
+//            ValidateIssuerSigningKey = true,
+//            IssuerSigningKey = new RsaSecurityKey(rsa),
+//            ValidateIssuer = false,
+//            ValidateAudience = false,
+//            ValidateLifetime = true,  // Ensure token is not expired
+//            ClockSkew = TimeSpan.Zero  // Remove the default clock skew
+//        };
 
-                object role;
+//        try
+//        {
+//            ClaimsPrincipal principal = tokenHandler.ValidateToken(token, validationParameters, out SecurityToken validatedToken);
+//            var userId = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+//            var username = principal.FindFirst(JwtRegisteredClaimNames.UniqueName)?.Value;
+//            var role = principal.FindFirst(ClaimTypes.Role)?.Value;
 
-                jwtToken.Payload.TryGetValue(ClaimTypes.Role, out role);
+//            payload = new TokenDataModel
+//            {
+//                UserId = Convert.ToInt32(userId),
+//                Username = username,
+//                Role = role
+//            };
+//            return true;
+//        }
+//        catch (Exception)
+//        {
+//            payload = null;
+//            return false;
+//        }
+//    }
 
-                tokenModelJwt = new TokenModelJwt
-                {
-                    Uid = Convert.ToInt32(jwtToken.Id),
-                    Role = role == null ? "" : role.ToString()
-                };
-            }
-            return tokenModelJwt;
-        }
+//    // Generate new access token using the refresh token
+//    public string RefreshAccessToken(string refreshToken)
+//    {
+//        if (ValidateToken(refreshToken, out TokenDataModel payload))
+//        {
+//            return GenerateToken(payload, expiresInMinutes: 15);
+//        }
+//        throw new SecurityTokenException("Invalid refresh token.");
+//    }
 
-        /// <summary>
-        /// 授权解析jwt
-        /// </summary>
-        /// <param name="httpContext"></param>
-        /// <returns></returns>
-        public static TokenModelJwt ParsingJwtToken(HttpContext httpContext)
-        {
-            if (!httpContext.Request.Headers.ContainsKey("Authorization"))
-                return null;
-            var tokenHeader = httpContext.Request.Headers["Authorization"].ToString().Replace("Bearer ", "");
-            TokenModelJwt tm = SerializeJwt(tokenHeader);
-            return tm;
-        }
-
-    }
-
-    /// <summary>
-    /// 令牌
-    /// </summary>
-    public class TokenModelJwt
-    {
-        /// <summary>
-        /// Id
-        /// </summary>
-        public int Uid { get; set; }
-        /// <summary>
-        /// 角色
-        /// </summary>
-        public string Role { get; set; }
-        /// <summary>
-        /// 职能
-        /// </summary>
-        public string Work { get; set; }
-
-    }
-}
+//    // Generate a new RSA key pair and save to files
+//    public static void GenerateKeyPair(string privateKeyPath, string publicKeyPath)
+//    {
+//        using (var rsa = RSA.Create(2048))
+//        {
+//            // Export private and public keys
+//            File.WriteAllBytes(privateKeyPath, rsa.ExportRSAPrivateKey());
+//            File.WriteAllBytes(publicKeyPath, rsa.ExportSubjectPublicKeyInfo());
+//        }
+//    }
+//}

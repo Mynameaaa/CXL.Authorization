@@ -1,4 +1,5 @@
 using _004_JWT_Custom;
+using _004_JWT_Custom.Helper;
 using _004_JWT_Custom.Service;
 using _004_JWT_Custom.Service.Authorization;
 using _004_JWT_Custom.Service.Authorization.Filter;
@@ -15,7 +16,7 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddSingleton(new Appsettings(builder.Configuration));
+Appsettings.InitConfigure(builder.Configuration);
 
 // Add services to the container.
 builder.Services.AddControllers(options =>
@@ -25,19 +26,58 @@ builder.Services.AddControllers(options =>
 
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(c =>
+
+builder.Services.AddSingleton<ITokenService, TokenService>();
+builder.Services.AddSingleton<ITokenHelper, TokenHelper>();
+
+builder.Services.AddSwaggerGen(o =>
 {
-    // 定义 JWT Bearer 的安全定义
-    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    //o.DocumentFilter<CXLSecurityDocumentFilter>();
+
+    o.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        In = ParameterLocation.Header,
-        Description = "请输入带有 'Bearer ' 前缀的Token",
         Name = "Authorization",
-        Type = SecuritySchemeType.ApiKey,
-        Scheme = "Bearer"
+        Type = SecuritySchemeType.Http,
+        Scheme = "Bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "JWT Authorization header using the Bearer scheme. Example: \"Authorization: Bearer {token}\""
     });
 
-    c.OperationFilter<TokenOperationFilter>();
+    o.AddSecurityDefinition("RefreshToken", new OpenApiSecurityScheme
+    {
+        Name = "refresh_token",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey,
+        Description = "Refresh Token for renewing access tokens."
+    });
+
+    // 添加全局的安全要求
+    o.AddSecurityRequirement(new OpenApiSecurityRequirement()
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            new List<string>()
+        },
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "RefreshToken"
+                }
+            },
+            new List<string>()
+        }
+    });
 });
 
 #region 注册鉴权授权服务
@@ -60,10 +100,7 @@ builder.Services.AddSingleton<IAuthorizationEvaluator, CXLAuthorizationEvaluator
 
 #region JWT 鉴权
 
-string Issuer = builder.Configuration["Audience:Issuer"];
-string Audience = builder.Configuration["Audience:Audience"];
-byte[] SecreityBytes = Encoding.UTF8.GetBytes(builder.Configuration["Audience:Secret"]);
-SecurityKey securityKey = new SymmetricSecurityKey(SecreityBytes);
+builder.Services.AddScoped<IAuthenticationService, CXLAuthenticationService>();
 
 builder.Services.AddCXLAuthentication(options =>
 {
@@ -72,22 +109,46 @@ builder.Services.AddCXLAuthentication(options =>
     options.DefaultChallengeScheme = CXLConstantScheme.Scheme;
 }).AddScheme<CXLAuthenticationSchemeOptions, CXLAuthenticationHandler>(CXLConstantScheme.Scheme, options =>
 {
-    options.Age = 18;
-    options.DisplayName = "ZWJ";
-    //发行人
-    options.Issuer = Issuer;
-    options.ValidateAudience = true;
-    options.Audience = Audience;
-    options.ValidateIssuer = true;
-    options.SecretKey = securityKey;
-    options.DefualtChallageMessage = "无效的 Token 或未找到合适的 Token";
-    options.RedirectUrl = "https://google.com";
-    ////自定义鉴权逻辑
-    //options.AuthEvent += logger =>
-    //{
-    //    options.UseEventResult = true;
-    //    return Task.FromResult(AuthenticateResult.Fail("你好"));
-    //};
+    if (Appsettings.app<bool>("UsePubPriKey"))
+    {
+        string privateKeyPath = Path.Combine(Directory.GetCurrentDirectory(), Appsettings.app("TokenKey:PrivateKeyPath") ?? "Keys/private.pem");
+        string publicKeyPath = Path.Combine(Directory.GetCurrentDirectory(), Appsettings.app("TokenKey:PublicKeyPath") ?? "Keys/public.pem");
+
+        KeyHelper keys = new KeyHelper();
+        keys.GenerateKeys(privateKeyPath, publicKeyPath);
+
+        // 使用生成的公钥来验证 JWT
+        var publicKey = keys.LoadPublicKeyFromPEM(publicKeyPath);
+        options.ValidateSecretKey = true;
+        options.SecretKey = new RsaSecurityKey(publicKey);
+        options.ValidateIssuer = false;
+        options.ValidateAudience = false;
+    }
+    else
+    {
+        string Issuer = Appsettings.app("JWT: Issuer") ?? string.Empty;
+        string Audience = Appsettings.app("JWT:Audience") ?? string.Empty;
+        byte[] SecreityBytes = Encoding.UTF8.GetBytes(Appsettings.app("JWT:SecretKey") ?? string.Empty);
+        SecurityKey securityKey = new SymmetricSecurityKey(SecreityBytes);
+
+        options.Age = 18;
+        options.DisplayName = "ZWJ";
+        //发行人
+        options.Issuer = Issuer;
+        options.ValidateAudience = true;
+        options.Audience = Audience;
+        options.ValidateIssuer = true;
+        options.SecretKey = securityKey;
+        options.ValidateSecretKey = true;
+        options.DefualtChallageMessage = "无效的 Token 或未找到合适的 Token";
+        options.RedirectUrl = "https://google.com";
+        ////自定义鉴权逻辑
+        //options.AuthEvent += logger =>
+        //{
+        //    options.UseEventResult = true;
+        //    return Task.FromResult(AuthenticateResult.Fail("你好"));
+        //};
+    }
 });
 
 #endregion
@@ -152,19 +213,19 @@ builder.Services.AddAuthorization(options =>
 
 var app = builder.Build();
 
-CXLAuthorizationService defaultAuthorizationService = app.Services.GetService<IAuthorizationService>() as CXLAuthorizationService;
+//CXLAuthorizationService defaultAuthorizationService = app.Services.GetService<IAuthorizationService>() as CXLAuthorizationService;
 
-DefaultAuthorizationHandlerProvider handlerprovider = app.Services.GetService<IAuthorizationHandlerProvider>() as DefaultAuthorizationHandlerProvider;
+//DefaultAuthorizationHandlerProvider handlerprovider = app.Services.GetService<IAuthorizationHandlerProvider>() as DefaultAuthorizationHandlerProvider;
 
-DefaultAuthorizationEvaluator evaluator = app.Services.GetService<IAuthorizationEvaluator>() as DefaultAuthorizationEvaluator;
+//DefaultAuthorizationEvaluator evaluator = app.Services.GetService<IAuthorizationEvaluator>() as DefaultAuthorizationEvaluator;
 
-DefaultAuthorizationHandlerContextFactory contexfactory = app.Services.GetService<IAuthorizationHandlerContextFactory>() as DefaultAuthorizationHandlerContextFactory;
+//DefaultAuthorizationHandlerContextFactory contexfactory = app.Services.GetService<IAuthorizationHandlerContextFactory>() as DefaultAuthorizationHandlerContextFactory;
 
-AuthorizationHandler<IAuthorizationRequirement> handler = app.Services.GetService<IAuthorizationHandler>() as AuthorizationHandler<IAuthorizationRequirement>;
+//AuthorizationHandler<IAuthorizationRequirement> handler = app.Services.GetService<IAuthorizationHandler>() as AuthorizationHandler<IAuthorizationRequirement>;
 
-PolicyEvaluator policy = app.Services.GetService<IPolicyEvaluator>() as PolicyEvaluator;
+//PolicyEvaluator policy = app.Services.GetService<IPolicyEvaluator>() as PolicyEvaluator;
 
-AuthorizationMiddlewareResultHandler authorizationMiddlewareResultHandler = app.Services.GetService<IAuthorizationMiddlewareResultHandler>() as AuthorizationMiddlewareResultHandler;
+//AuthorizationMiddlewareResultHandler authorizationMiddlewareResultHandler = app.Services.GetService<IAuthorizationMiddlewareResultHandler>() as AuthorizationMiddlewareResultHandler;
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

@@ -1,8 +1,8 @@
-﻿using Microsoft.AspNetCore.Authentication;
+﻿using _004_JWT_Custom.Helper;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
-using Newtonsoft.Json.Linq;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Principal;
@@ -14,6 +14,9 @@ namespace _004_JWT_Custom.Service
     [NoSchemeDefaultHandler]
     public class CXLAuthenticationHandler : AuthenticationHandler<CXLAuthenticationSchemeOptions>
     {
+
+        private readonly ITokenService _tokenService;
+
         /// <summary>
         /// 鉴权选项
         /// </summary>
@@ -37,12 +40,13 @@ namespace _004_JWT_Custom.Service
         /// </summary>
         private Dictionary<string, string> _challengeMessages = new Dictionary<string, string>();
 
-        public CXLAuthenticationHandler(IOptionsMonitor<CXLAuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder, ISystemClock clock) : base(options, logger, encoder, clock)
+        public CXLAuthenticationHandler(IOptionsMonitor<CXLAuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder, ISystemClock clock, ITokenService tokenService) : base(options, logger, encoder, clock)
         {
             _options = options;
             _logger = logger;
             _urlEncoder = UrlEncoder;
             _clock = clock;
+            _tokenService = tokenService;
         }
 
         protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
@@ -65,102 +69,180 @@ namespace _004_JWT_Custom.Service
 
             #endregion
 
-            //加载 Token 信息
-            var token = InitToken();
+            // 加载 access_token
+            var token = InitToken("Authorization");
 
-            if (!token.Item1 || string.IsNullOrWhiteSpace(token.Item2))
+            var useRefreshToken = Appsettings.app<bool?>("UseRefreshToken") ?? false;
+
+            if ((!token.Item1 || string.IsNullOrWhiteSpace(token.Item2)) && useRefreshToken)
             {
-                // Token 验证失败，立即返回 401 错误
-                return AuthenticateResult.Fail(token.Item2);
-            }
+                // access_token 无效，检查是否存在 refresh_token
+                var refreshToken = InitToken("refresh_token");
 
-            #region Token 验证
-
-            ClaimsPrincipal claimsPrincipal = null;
-
-            try
-            {
-                var tokenHandler = new JwtSecurityTokenHandler();
-
-                var validationParameters = new TokenValidationParameters
+                if (!refreshToken.Item1 || string.IsNullOrWhiteSpace(refreshToken.Item2))
                 {
-                    ValidateIssuerSigningKey = true,
-                    IssuerSigningKey = base.Options.SecretKey, // 设置签名密钥
-                    ValidateIssuer = base.Options.ValidateIssuer,  // 验证发行者
-                    ValidateAudience = base.Options.ValidateAudience,  // 验证观众
-                    ValidAudience = base.Options.Audience,
-                    ValidIssuer = base.Options.Issuer,
-                    ValidateLifetime = true, // 验证生命周期
-                    ClockSkew = TimeSpan.FromSeconds(30) // 时钟偏移
-                };
+                    // 两者都无效，返回 401
+                    _challengeMessages.Add("message", "无效的 Token 请重新登录");
+                    return AuthenticateResult.Fail(string.Empty);
+                }
 
-                SecurityToken validatedToken;
-                var principal = tokenHandler.ValidateToken(token.Item2, validationParameters, out validatedToken);
-                claimsPrincipal = principal;
+                // 验证 refresh_token
+                bool isRefreshTokenValid = _tokenService.ValidationRefreshToken(refreshToken.Item2);
+
+                if (isRefreshTokenValid)
+                {
+                    // 从 refresh_token 中获取用户信息或 Claims 信息
+                    var userClaims = _tokenService.GetClaimsFromRefreshToken(refreshToken.Item2);
+
+                    if (userClaims == null)
+                    {
+                        throw new Exception("异常的 Claims 信息");
+                    }
+
+                    // 生成新的 access_token 和 refresh_token
+                    string privateKeyPath = Path.Combine(Directory.GetCurrentDirectory(), Appsettings.app("TokenKey:PrivateKeyPath") ?? "Keys/public.pem");
+
+                    var newTokenModel = await _tokenService.GenerateJwtToken(privateKeyPath, userClaims);
+                    var newAccessToken = newTokenModel.access_token;
+                    var newRefreshToken = newTokenModel.refresh_token;
+
+                    // 返回新的令牌
+                    base.Context.Response.Headers["Authorization"] = "Bearer " + newAccessToken;
+                    base.Context.Response.Headers["refresh_token"] = newRefreshToken;
+
+                    // 验证新的 access_token
+                    var newPrincipal = ValidateToken(newAccessToken);
+                    if (newPrincipal != null)
+                    {
+                        var newAuthenticationTicket = new AuthenticationTicket(newPrincipal, Scheme.Name);
+                        return AuthenticateResult.Success(newAuthenticationTicket);
+                    }
+                    else
+                    {
+                        return AuthenticateResult.Fail("新生成的 Token 验证失败");
+                    }
+                }
+
+                return AuthenticateResult.Fail("refresh_token 无效");
             }
-            catch (SecurityTokenExpiredException ex)
+            else
             {
-                _challengeMessages.Add("message", "Token 信息已过期请重新获取");
-                return AuthenticateResult.Fail(string.Empty);
+                // 验证 access_token 是否有效
+                try
+                {
+                    var accessTokenPrincipal = ValidateToken(token.Item2);
+
+                    if (accessTokenPrincipal == null)
+                    {
+                        throw new SecurityTokenExpiredException();
+                    }
+
+                    // 构建 AuthenticationTicket
+                    var authenticationTicket = new AuthenticationTicket(accessTokenPrincipal, Scheme.Name);
+                    return AuthenticateResult.Success(authenticationTicket);
+                }
+                catch (SecurityTokenExpiredException)
+                {
+                    // access_token 过期了，检查是否存在 refresh_token
+                    var refreshToken = InitToken("refresh_token");
+
+                    if ((!refreshToken.Item1 || string.IsNullOrWhiteSpace(refreshToken.Item2)) && useRefreshToken)
+                    {
+                        _challengeMessages.Add("message", "Token 已过期请重新登录");
+                        return AuthenticateResult.Fail(string.Empty);
+                    }
+
+                    // 验证 refresh_token
+                    bool isRefreshTokenValid = _tokenService.ValidationRefreshToken(refreshToken.Item2);
+
+                    if (isRefreshTokenValid)
+                    {
+                        // 使用 refresh_token 获取用户信息或 Claims 信息
+                        var userClaims = _tokenService.GetClaimsFromRefreshToken(refreshToken.Item2);
+
+                        if (userClaims == null)
+                        {
+                            throw new Exception("异常的 Claims 信息");
+                        }
+
+                        // 生成新的 access_token 和 refresh_token
+                        string privateKeyPath = Path.Combine(Directory.GetCurrentDirectory(), Appsettings.app("TokenKey:PrivateKeyPath") ?? "Keys/public.pem");
+                        var newTokenModel = await _tokenService.GenerateJwtToken(privateKeyPath, userClaims);
+                        var newAccessToken = newTokenModel.access_token;
+                        var newRefreshToken = newTokenModel.refresh_token;
+
+                        // 返回新的令牌
+                        base.Context.Response.Headers["Authorization"] = "Bearer " + newAccessToken;
+                        base.Context.Response.Headers["refresh_token"] = newRefreshToken;
+
+                        // 重新验证新的 access_token
+                        var newPrincipal = ValidateToken(newAccessToken);
+                        if (newPrincipal != null)
+                        {
+                            var newAuthenticationTicket = new AuthenticationTicket(newPrincipal, Scheme.Name);
+                            return AuthenticateResult.Success(newAuthenticationTicket);
+                        }
+                        else
+                        {
+                            _challengeMessages.Add("message", "新生成的 Token 验证失败");
+                            return AuthenticateResult.Fail(string.Empty);
+                        }
+                    }
+
+                    _challengeMessages.Add("message", "refresh_token 无效");
+                    return AuthenticateResult.Fail(string.Empty);
+                }
             }
-            catch (SecurityTokenSignatureKeyNotFoundException ex)
-            {
-                _challengeMessages.Add("message", "无效的 Token 信息");
-                return AuthenticateResult.Fail(string.Empty);
-            }
-
-            #endregion
-
-            // 构建 AuthenticationTicket
-            var authentication = new AuthenticationTicket(claimsPrincipal, Scheme.Name);
-
-            return AuthenticateResult.Success(authentication);
         }
 
         /// <summary>
         /// 获取 Token
         /// </summary>
         /// <returns></returns>
-        private (bool, string) InitToken()
+        private (bool, string) InitToken(string tokenHeader)
         {
             string? token = string.Empty;
 
-            token = base.Context.Request.Headers["Authorization"];
-
+            token = base.Context.Request.Headers[tokenHeader];
             if (string.IsNullOrWhiteSpace(token))
-            {
-                token = base.Context.Request.Headers["CXLToken"];
-                if (string.IsNullOrWhiteSpace(token))
-                {
-                    _challengeMessages.Add("message", "不存在票据信息！请先登录");
-                    return (false, string.Empty);
-                }
+                return (false, "不存在 Token 信息");
 
-                if (token.StartsWith("Bearer "))
-                {
-                    token = token.Substring("Bearer ".Length).Trim();
-                }
-            }
-            else
+            // 使用不区分大小写的方式匹配 "Bearer "
+            var bearerPrefix = "Bearer ";
+            if (token.StartsWith(bearerPrefix, StringComparison.OrdinalIgnoreCase))
             {
-                if (token.StartsWith("Bearer "))
-                {
-                    token = token.Substring("Bearer ".Length).Trim();
-                }
+                string newToken = token.Substring(bearerPrefix.Length).Trim();
+                token = newToken;
             }
 
             return (true, token);
         }
 
-        //private ClaimsPrincipal ValidateToken(string Token)
-        //{
+        private ClaimsPrincipal ValidateToken(string Token)
+        {
+            var tokenHandler = new JwtSecurityTokenHandler();
 
-        //}
+            var validationParameters = new TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = base.Options.SecretKey, // 设置签名密钥
+                ValidateIssuer = base.Options.ValidateIssuer,  // 验证发行者
+                ValidateAudience = base.Options.ValidateAudience,  // 验证观众
+                ValidAudience = base.Options.Audience,
+                ValidIssuer = base.Options.Issuer,
+                ValidateLifetime = true, // 验证生命周期
+                ClockSkew = TimeSpan.FromSeconds(30) // 时钟偏移
+            };
+
+            SecurityToken validatedToken;
+            var principal = tokenHandler.ValidateToken(Token, validationParameters, out validatedToken);
+            return principal;
+        }
 
         protected override Task HandleForbiddenAsync(AuthenticationProperties properties)
         {
-            // 设置 403 状态码
-            Response.StatusCode = StatusCodes.Status403Forbidden;
+            // 设置 401 状态码
+            Response.StatusCode = StatusCodes.Status401Unauthorized;
             Response.ContentType = "application/json";
             return base.HandleForbiddenAsync(properties);
         }
