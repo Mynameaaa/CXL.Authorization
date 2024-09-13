@@ -1,0 +1,3 @@
+﻿<Project>
+  <Import Project="..\build\003-JWT.props" />
+</Project>

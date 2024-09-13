@@ -1,0 +1,3 @@
+﻿<Project>
+  <Import Project="..\buildMultiTargeting\004-JWT-Custom.props" />
+</Project>

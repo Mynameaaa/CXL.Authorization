@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "dgSpecHash": "fpwkFBokHMnOghzNoA87IwSNjTqj4TqbPz63CwvqjU24T9H+67euTESHCe07+vVjg2gfkMAy5EN/Lbn+R6Qp2Q==",
+  "success": true,
+  "projectFilePath": "D:\\VSPro\\WWC.240612.Authorization\\WWC.240612.Authorization\\WWC.240612.Authorization.csproj",
+  "expectedPackageFiles": [],
+  "logs": [
+    {
+      "code": "NU1803",
+      "level": "Warning",
+      "warningLevel": 1,
+      "message": "正在通过 “HTTP” 源“http://nuget.gejia.tech/v3/index.json”运行“restore”操作。将来的版本中将删除非 HTTPS 访问权限。请考虑迁移到 “HTTPS” 源。"
+    }
+  ]
+}

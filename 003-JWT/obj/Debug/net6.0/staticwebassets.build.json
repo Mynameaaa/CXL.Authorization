@@ -1,0 +1,11 @@
+{
+  "Version": 1,
+  "Hash": "hwC9rRCbtIU1x7BXeZH4YCcZJlDq5Cos7GVjKAgHbSM=",
+  "Source": "003-JWT-Microsoft",
+  "BasePath": "_content/003-JWT-Microsoft",
+  "Mode": "Default",
+  "ManifestType": "Build",
+  "ReferencedProjectsConfiguration": [],
+  "DiscoveryPatterns": [],
+  "Assets": []
+}

@@ -1,0 +1,3 @@
+﻿<Project>
+  <Import Project="..\build\001-Cookie-Session.props" />
+</Project>

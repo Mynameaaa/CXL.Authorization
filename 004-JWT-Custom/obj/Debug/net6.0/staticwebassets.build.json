@@ -1,0 +1,23 @@
+{
+  "Version": 1,
+  "Hash": "ipd05HZUkofFPDFIcSBC9J9cDrgw5NOLzC9XeAR+oHY=",
+  "Source": "004-JWT-Custom",
+  "BasePath": "_content/004-JWT-Custom",
+  "Mode": "Default",
+  "ManifestType": "Build",
+  "ReferencedProjectsConfiguration": [
+    {
+      "Identity": "D:\\VSPro\\WWC.240612.Authorization\\003-JWT\\003-JWT-Microsoft.csproj",
+      "Version": 2,
+      "Source": "003-JWT-Microsoft",
+      "GetPublishAssetsTargets": "ComputeReferencedStaticWebAssetsPublishManifest;GetCurrentProjectPublishStaticWebAssetItems",
+      "AdditionalPublishProperties": "Configuration=Debug;Platform=AnyCPU",
+      "AdditionalPublishPropertiesToRemove": "WebPublishProfileFile;TargetFramework",
+      "GetBuildAssetsTargets": "GetCurrentProjectBuildStaticWebAssetItems",
+      "AdditionalBuildProperties": "Configuration=Debug;Platform=AnyCPU",
+      "AdditionalBuildPropertiesToRemove": "WebPublishProfileFile;TargetFramework"
+    }
+  ],
+  "DiscoveryPatterns": [],
+  "Assets": []
+}
